@@ -1,0 +1,153 @@
+version: '3.8'
+
+networks:
+  hms-network:
+    driver: bridge
+
+services:
+  # -----------------------------------------------
+  # 1. INFRASTRUCTURE (Postgres, Kafka, Redis, etc.)
+  # -----------------------------------------------
+  
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432" # Expose to host for debugging
+    networks:
+      - hms-network
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - hms-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - hms-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - hms-network
+
+  # Debezium Connect (for Transactional Outbox pattern)
+  debezium-connect:
+    image: debezium/connect:2.5
+    container_name: debezium-connect
+    depends_on:
+      - kafka
+      - postgres
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: my_connect_configs
+      OFFSET_STORAGE_TOPIC: my_connect_offsets
+      STATUS_STORAGE_TOPIC: my_connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+    networks:
+      - hms-network
+
+  # -----------------------------------------------
+  # 2. YOUR HMS MICROSERVICES
+  # -----------------------------------------------
+  
+  # The BFF Service
+  hms-auth-bff:
+    # This tells Docker Compose to build the image from the Dockerfile
+    # in the 'hms-auth-bff' repo (which you cloned)
+    build:
+      context: ../hms-auth-bff # Assumes it's in a sibling folder
+    container_name: hms-auth-bff
+    ports:
+      - "8080:8080" # The main entry point
+    environment:
+      # Pass in all required secrets/config
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_HOST=postgres # <-- Uses Docker DNS
+      - SCALEKIT_ENVIRONMENT_URL=${SCALEKIT_ENVIRONMENT_URL}
+      - SCALEKIT_CLIENT_ID=${SCALEKIT_CLIENT_ID}
+      - SCALEKIT_CLIENT_SECRET=${SCALEKIT_CLIENT_SECRET}
+      - SCALEKIT_WEBHOOK_SECRET=${SCALEKIT_WEBHOOK_SECRET}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/bff_db
+    networks:
+      - hms-network
+    depends_on:
+      - postgres # Won't start until Postgres is ready
+
+  # The Workflow Service
+  hms-onboarding-workflow:
+    build:
+      context: ../hms-onboarding-workflow
+    container_name: hms-onboarding-workflow
+    # No ports exposed; this service is purely internal
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_HOST=postgres
+      - SCALEKIT_ENVIRONMENT_URL=${SCALEKIT_ENVIRONMENT_URL}
+      - SCALEKIT_CLIENT_ID=${SCALEKIT_CLIENT_ID}
+      - SCALEKIT_CLIENT_SECRET=${SCALEKIT_CLIENT_SECRET}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/workflow_db
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092 # <-- Docker DNS
+    networks:
+      - hms-network
+    depends_on:
+      - postgres
+      - kafka
+
+  # The CQRS Projector
+  hms-dashboard-projector:
+    build:
+      context: ../hms-dashboard-projector
+    container_name: hms-dashboard-projector
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_HOST=postgres
+      - SCALEKIT_ENVIRONMENT_URL=${SCALEKIT_ENVIRONMENT_URL}
+      - SCALEKIT_CLIENT_ID=${SCALEKIT_CLIENT_ID}
+      - SCALEKIT_CLIENT_SECRET=${SCALEKIT_CLIENT_SECRET}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/projector_db
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092 # <-- Docker DNS
+      - SPRING_REDIS_HOST=redis # <-- Docker DNS
+    networks:
+      - hms-network
+    depends_on:
+      - postgres
+      - kafka
+      - redis
+
+volumes:
+  postgres_data:
+
