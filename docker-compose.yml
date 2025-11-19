@@ -100,10 +100,12 @@ services:
       - SCALEKIT_CLIENT_SECRET=${SCALEKIT_CLIENT_SECRET}
       - SCALEKIT_WEBHOOK_SECRET=${SCALEKIT_WEBHOOK_SECRET}
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/bff_db
+      - SPRING_REDIS_HOST=redis # <-- Required for distributed sessions (Factor VI)
     networks:
       - hms-network
     depends_on:
       - postgres # Won't start until Postgres is ready
+      - redis # <-- Required for distributed sessions
 
   # The Workflow Service
   hms-onboarding-workflow:
