@@ -1,0 +1,71 @@
+_format_version: "3.0"
+
+services:
+  # --- BFF Service (Public-facing authentication and user management) ---
+  - name: hms-auth-bff
+    url: http://hms-auth-bff:8080
+    routes:
+      - name: bff-auth-routes
+        paths:
+          - /api/auth
+          - /api/webhooks
+        strip_path: false
+        preserve_host: false
+      - name: bff-login-routes
+        paths:
+          - /login
+          - /oauth2
+        strip_path: false
+        preserve_host: false
+      - name: bff-actuator-routes
+        paths:
+          - /actuator
+        strip_path: false
+        preserve_host: false
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - "*"
+          methods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - OPTIONS
+          headers:
+            - Accept
+            - Accept-Language
+            - Content-Language
+            - Content-Type
+            - Authorization
+            - X-Trace-Id
+          exposed_headers:
+            - X-Trace-Id
+          credentials: true
+          max_age: 3600
+
+  # --- Workflow Service (Internal orchestration - Rate Limited) ---
+  - name: hms-onboarding-workflow
+    url: http://hms-onboarding-workflow:8080
+    routes:
+      - name: workflow-routes
+        paths:
+          - /api/v1/onboarding
+        strip_path: false
+        preserve_host: false
+      - name: workflow-actuator-routes
+        paths:
+          - /actuator
+        strip_path: false
+        preserve_host: false
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 100
+          hour: 1000
+          policy: local
+          limit_by: ip
+          fault_tolerant: true
+      # Note: X-Trace-Id is handled by hms-common-lib JwtAuthenticationFilter in downstream services
+

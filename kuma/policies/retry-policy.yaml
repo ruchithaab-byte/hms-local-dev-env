@@ -1,0 +1,35 @@
+type: Retry
+name: default-retry-policy
+mesh: default
+sources:
+  - match:
+      kuma.io/service: "*"
+destinations:
+  - match:
+      kuma.io/service: "*"
+conf:
+  http:
+    numRetries: 3
+    perTryTimeout: 5s
+    backOff:
+      baseInterval: 0.5s
+      maxInterval: 60s
+    retryOn:
+      - "5xx"
+      - "gateway-error"
+      - "reset"
+      - "connect-failure"
+      - "refused-stream"
+  grpc:
+    numRetries: 3
+    perTryTimeout: 5s
+    backOff:
+      baseInterval: 0.5s
+      maxInterval: 60s
+    retryOn:
+      - "cancelled"
+      - "deadline-exceeded"
+      - "internal"
+      - "resource-exhausted"
+      - "unavailable"
+

@@ -1,0 +1,35 @@
+type: CircuitBreaker
+name: default-circuit-breaker
+mesh: default
+sources:
+  - match:
+      kuma.io/service: "*"
+destinations:
+  - match:
+      kuma.io/service: "*"
+conf:
+  interval: 30s
+  baseEjectionTime: 30s
+  maxEjectionPercent: 50
+  splitExternalAndLocalErrors: false
+  thresholds:
+    maxConnections: 1024
+    maxPendingRequests: 1024
+    maxRequests: 1024
+    maxRetries: 3
+  detectors:
+    totalErrors:
+      consecutive: 5
+    gatewayErrors:
+      consecutive: 5
+    localErrors:
+      consecutive: 5
+    standardDeviation:
+      requestVolume: 10
+      minimumHosts: 5
+      factor: 1.9
+    failure:
+      requestVolume: 10
+      minimumHosts: 5
+      threshold: 85
+

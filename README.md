@@ -1,5 +1,7 @@
 # HMS Local Development Environment
 
+> **🚀 Quick Start:** See [STARTUP_GUIDE.md](./STARTUP_GUIDE.md) for complete step-by-step instructions.
+
 This repository contains the Docker Compose configuration for running the entire HMS microservices stack locally.
 
 ## Prerequisites

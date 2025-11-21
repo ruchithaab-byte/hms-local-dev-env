@@ -1,0 +1,22 @@
+type: Timeout
+name: default-timeout-policy
+mesh: default
+sources:
+  - match:
+      kuma.io/service: "*"
+destinations:
+  - match:
+      kuma.io/service: "*"
+conf:
+  connectTimeout: 10s
+  tcp:
+    idleTimeout: 1h
+  http:
+    requestTimeout: 10s
+    idleTimeout: 1h
+    streamIdleTimeout: 5m
+    maxConnectionDuration: 0s
+  grpc:
+    streamIdleTimeout: 5m
+    maxStreamDuration: 0s
+

@@ -1,0 +1,71 @@
+{
+  "type": "Mesh",
+  "name": "default",
+  "mtls": {
+    "enabledBackend": "ca-1",
+    "backends": [
+      {
+        "name": "ca-1",
+        "type": "builtin",
+        "dpCert": {
+          "rotation": {
+            "expiration": "1d"
+          }
+        },
+        "conf": {
+          "caCert": {
+            "RSAbits": 2048,
+            "expiration": "10y"
+          },
+          "cert": {
+            "RSAbits": 2048,
+            "expiration": "1d"
+          }
+        }
+      }
+    ],
+    "mode": "permissive"
+  },
+  "logging": {
+    "backends": [
+      {
+        "name": "file-backend",
+        "type": "file",
+        "conf": {
+          "path": "/tmp/kuma-access.log"
+        }
+      }
+    ]
+  },
+  "metrics": {
+    "enabledBackend": "prometheus-1",
+    "backends": [
+      {
+        "name": "prometheus-1",
+        "type": "prometheus",
+        "conf": {
+          "port": 5670,
+          "path": "/metrics",
+          "tags": {
+            "kuma.io/service": "dataplane-metrics"
+          }
+        }
+      }
+    ]
+  },
+  "tracing": {
+    "defaultBackend": "zipkin-1",
+    "backends": [
+      {
+        "name": "zipkin-1",
+        "type": "zipkin",
+        "conf": {
+          "url": "http://localhost:9411/api/v2/spans",
+          "sharedSpanContext": true,
+          "apiVersion": "httpJsonV1"
+        }
+      }
+    ]
+  }
+}
+

@@ -1,0 +1,9 @@
+type: TrafficTrace
+name: default-trace-policy
+mesh: default
+selectors:
+  - match:
+      kuma.io/service: "*"
+conf:
+  backend: zipkin-1
+
