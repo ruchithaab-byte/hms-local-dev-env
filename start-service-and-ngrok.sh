@@ -28,6 +28,26 @@ if ! ngrok config check > /dev/null 2>&1; then
 fi
 echo "✅ ngrok is authenticated"
 
+# Verify environment configuration
+echo ""
+echo "🔍 Verifying environment configuration..."
+if [ ! -f .env ]; then
+    echo "❌ .env file not found!"
+    exit 1
+fi
+
+if ! grep -q "^PERMIT_API_KEY=" .env; then
+    echo "⚠️  PERMIT_API_KEY not found in .env (Permit.io features will be disabled)"
+else
+    echo "✅ Permit.io API key configured"
+fi
+
+if ! grep -q "^PERMIT_ENVIRONMENT=" .env; then
+    echo "⚠️  PERMIT_ENVIRONMENT not found in .env"
+else
+    echo "✅ Permit.io environment configured"
+fi
+
 # Start infrastructure and services
 echo ""
 echo "📦 Starting infrastructure (Postgres, Redis, Kafka)..."
@@ -56,6 +76,55 @@ else
 fi
 cd ..
 
+# Start Permit.io PDP containers (Policy Decision Points)
+echo ""
+echo "🔐 Starting Permit.io PDP containers..."
+docker-compose up -d permit-pdp-kong permit-pdp-workflow permit-pdp-bff
+
+echo "⏳ Waiting for Permit.io PDPs to be ready..."
+sleep 5
+
+# Verify PDP containers are running
+PDP_COUNT=0
+for pdp in permit-pdp-kong permit-pdp-workflow permit-pdp-bff; do
+    if docker-compose ps $pdp 2>/dev/null | grep -q "Up"; then
+        echo "✅ $pdp is running"
+        PDP_COUNT=$((PDP_COUNT + 1))
+    else
+        echo "⚠️  $pdp may still be starting..."
+    fi
+done
+
+if [ "$PDP_COUNT" -eq 3 ]; then
+    echo "✅ All Permit.io PDP containers are running"
+else
+    echo "⚠️  Some Permit.io PDP containers may not be ready yet"
+fi
+
+# Start Observability Stack (must start before microservices for OTEL connectivity)
+echo ""
+echo "📊 Starting Observability Stack (Loki, Tempo, Grafana, Promtail)..."
+docker-compose up -d loki tempo grafana promtail
+
+echo "⏳ Waiting for Observability Stack to be ready..."
+sleep 5
+
+# Verify Tempo is ready (critical for OpenTelemetry)
+TEMPO_READY=false
+for i in {1..10}; do
+    if curl -s http://localhost:3200/status > /dev/null 2>&1; then
+        TEMPO_READY=true
+        break
+    fi
+    sleep 1
+done
+
+if [ "$TEMPO_READY" = true ]; then
+    echo "✅ Tempo (tracing backend) is ready"
+else
+    echo "⚠️  Tempo may still be starting (OpenTelemetry will retry)"
+fi
+
 # Prepare build context (build libraries and copy to services)
 echo ""
 echo "🔧 Preparing build context for services..."
@@ -67,6 +136,16 @@ docker-compose up -d --build hms-auth-bff hms-onboarding-workflow \
 
 echo "⏳ Waiting for services and sidecars to start..."
 sleep 15
+
+# Check for Permit.io initialization in logs
+echo ""
+echo "🔍 Checking Permit.io initialization..."
+if docker-compose logs hms-auth-bff 2>&1 | grep -qi "Permit.*initialized\|PermitSyncService"; then
+    echo "✅ Permit.io services initialized in hms-auth-bff"
+else
+    echo "⚠️  Permit.io initialization not yet visible (may still be starting)"
+    echo "   Check logs: docker-compose logs hms-auth-bff | grep -i permit"
+fi
 
 # Check if BFF service is ready
 if ! docker-compose ps hms-auth-bff | grep -q "Up"; then
@@ -184,6 +263,7 @@ if [ -n "$NGROK_URL" ]; then
     echo "💡 To view Kong Admin API: http://localhost:8001"
     echo "💡 To view Kuma GUI: http://localhost:5681/gui/"
     echo "💡 To view Kuma API: http://localhost:5681"
+    echo "💡 To view Grafana (Observability): http://localhost:3000"
     echo "💡 To stop: pkill -f 'ngrok http' && docker-compose down"
     echo ""
     echo "✅ All services are running through Kong Gateway + Kuma Mesh!"
@@ -193,6 +273,12 @@ if [ -n "$NGROK_URL" ]; then
     echo "   • Retries: Automatic on 5xx errors"
     echo "   • Circuit Breaking: Enabled"
     echo "   • Context Propagation: x-hms-* headers preserved"
+    echo ""
+    echo "🔐 Authorization (Permit.io):"
+    echo "   • Ingress: Kong Gateway → permit-pdp-kong"
+    echo "   • Application: hms-auth-bff → permit-pdp-bff"
+    echo "   • Workflow: hms-onboarding-workflow → permit-pdp-workflow"
+    echo "   • Status: Check logs for 'Permit.io.*initialized'"
 else
     echo ""
     echo "⚠️  Could not get ngrok URL. Check manually:"

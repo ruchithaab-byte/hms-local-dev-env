@@ -6,7 +6,7 @@ services:
   # -----------------------------------------------
   # 1. INFRASTRUCTURE (Postgres, Kafka, Redis, etc.)
   # -----------------------------------------------
-  
+
   postgres:
     image: postgres:15
     container_name: postgres
@@ -22,7 +22,7 @@ services:
       # Initialize databases on first startup
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -36,7 +36,7 @@ services:
     networks:
       - hms-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -94,7 +94,7 @@ services:
   kuma-cp:
     image: kumahq/kuma-cp:2.8.3
     container_name: kuma-cp
-    command: run  # CRITICAL: Explicitly run the control plane process
+    command: run # CRITICAL: Explicitly run the control plane process
     ports:
       - "5681:5681" # REST API (GUI accessible at /gui/)
       - "5682:5682" # HTTPS API (TLS)
@@ -123,6 +123,117 @@ services:
     # Removed internal healthcheck because minimal images lack curl/wget.
     # The ./init-kuma.sh script performs the external health check.
 
+    # -----------------------------------------------
+    # 1.5 OBSERVABILITY STACK (LGTM)
+    # -----------------------------------------------
+
+  loki:
+    image: grafana/loki:2.9.2
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./observability/loki-config.yaml:/etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - hms-network
+
+  promtail:
+    image: grafana/promtail:2.9.2
+    container_name: promtail
+    volumes:
+      - ./observability/promtail-config.yaml:/etc/promtail/config.yaml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yaml
+    networks:
+      - hms-network
+
+  tempo:
+    image: grafana/tempo:2.3.1
+    container_name: tempo
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./observability/tempo-config.yaml:/etc/tempo.yaml
+    ports:
+      - "3200:3200" # Tempo HTTP
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "9411:9411" # Zipkin
+    networks:
+      - hms-network
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    networks:
+      - hms-network
+    depends_on:
+      - loki
+      - tempo
+
+  # -----------------------------------------------
+  # Permit.io PDP Sidecars (Policy Decision Points)
+  # -----------------------------------------------
+
+  # Central PDP for Kong Gateway (Ingress Enforcement)
+  permit-pdp-kong:
+    image: permitio/pdp-v2:latest
+    container_name: permit-pdp-kong
+    environment:
+      - PDP_API_KEY=${PERMIT_API_KEY}
+      - PDP_DEBUG=true
+    ports:
+      - "7766:7000" # Exposed for Kong OPA plugin
+    networks:
+      - hms-network
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:7000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Sidecar for Workflow Service (Fine-Grained Authorization)
+  permit-pdp-workflow:
+    image: permitio/pdp-v2:latest
+    container_name: permit-pdp-workflow
+    environment:
+      - PDP_API_KEY=${PERMIT_API_KEY}
+      - PDP_DEBUG=true
+    networks:
+      - hms-network
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:7000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Sidecar for BFF Service (Fine-Grained Authorization)
+  permit-pdp-bff:
+    image: permitio/pdp-v2:latest
+    container_name: permit-pdp-bff
+    environment:
+      - PDP_API_KEY=${PERMIT_API_KEY}
+      - PDP_DEBUG=true
+    networks:
+      - hms-network
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:7000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   # Kong Gateway (The API Gateway - Ingress Layer)
   kong:
     image: kong:3.4
@@ -144,6 +255,8 @@ services:
     networks:
       - hms-network
     depends_on:
+      permit-pdp-kong:
+        condition: service_healthy
       kuma-cp:
         condition: service_started
       hms-auth-bff:
@@ -151,7 +264,7 @@ services:
       hms-onboarding-workflow:
         condition: service_started
     healthcheck:
-      test: ["CMD", "kong", "health"]
+      test: [ "CMD", "kong", "health" ]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -159,7 +272,7 @@ services:
   # -----------------------------------------------
   # 2. YOUR HMS MICROSERVICES
   # -----------------------------------------------
-  
+
   # The BFF Service
   hms-auth-bff:
     # This tells Docker Compose to build the image from the Dockerfile
@@ -181,9 +294,19 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/bff_db
       - SPRING_REDIS_HOST=redis # <-- Required for distributed sessions (Factor VI)
       - ONBOARDING_URL=http://hms-onboarding-workflow:8080/api/v1
+      - PERMIT_API_KEY=${PERMIT_API_KEY}
+      - PERMIT_ENVIRONMENT=${PERMIT_ENVIRONMENT}
+      - PERMIT_PDP_URL=http://permit-pdp-bff:7000
+      # OpenTelemetry Configuration
+      - JAVA_TOOL_OPTIONS=-javaagent:/app/opentelemetry-javaagent.jar
+      - OTEL_SERVICE_NAME=hms-auth-bff
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_METRICS_EXPORTER=none # We focus on traces for now
     networks:
       - hms-network
     depends_on:
+      permit-pdp-bff:
+        condition: service_healthy
       kuma-cp:
         condition: service_started
       postgres:
@@ -191,7 +314,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -233,9 +356,19 @@ services:
       - SCALEKIT_CLIENT_SECRET=${SCALEKIT_CLIENT_SECRET}
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/workflow_db
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092 # <-- Docker DNS
+      - PERMIT_API_KEY=${PERMIT_API_KEY}
+      - PERMIT_ENVIRONMENT=${PERMIT_ENVIRONMENT}
+      - PERMIT_PDP_URL=http://permit-pdp-workflow:7000
+      # OpenTelemetry Configuration
+      - JAVA_TOOL_OPTIONS=-javaagent:/app/opentelemetry-javaagent.jar
+      - OTEL_SERVICE_NAME=hms-onboarding-workflow
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_METRICS_EXPORTER=none
     networks:
       - hms-network
     depends_on:
+      permit-pdp-workflow:
+        condition: service_healthy
       kuma-cp:
         condition: service_started
       postgres:
@@ -243,7 +376,7 @@ services:
       kafka:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -285,6 +418,11 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/projector_db
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092 # <-- Docker DNS
       - SPRING_REDIS_HOST=redis # <-- Docker DNS
+      # OpenTelemetry Configuration
+      - JAVA_TOOL_OPTIONS=-javaagent:/app/opentelemetry-javaagent.jar
+      - OTEL_SERVICE_NAME=hms-dashboard-projector
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_METRICS_EXPORTER=none
     networks:
       - hms-network
     depends_on:
@@ -297,7 +435,7 @@ services:
       redis:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -326,4 +464,5 @@ services:
 
 volumes:
   postgres_data:
+
 

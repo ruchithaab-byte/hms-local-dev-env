@@ -8,7 +8,22 @@ services:
       - name: bff-auth-routes
         paths:
           - /api/auth
-          - /api/webhooks
+          - /api/webhooks  # Legacy path, kept for backward compatibility
+        strip_path: false
+        preserve_host: false
+      - name: bff-webhook-routes
+        paths:
+          - /webhooks  # ScaleKit webhook path
+        strip_path: false
+        preserve_host: false
+      - name: bff-admin-routes
+        paths:
+          - /api/admin
+        strip_path: false
+        preserve_host: false
+      - name: bff-dev-routes
+        paths:
+          - /dev
         strip_path: false
         preserve_host: false
       - name: bff-login-routes
@@ -44,6 +59,17 @@ services:
             - X-Trace-Id
           credentials: true
           max_age: 3600
+      # OPA Plugin for Permit.io PDP integration (requires kong-opa plugin installation)
+      # Uncomment and configure when kong-opa plugin is available
+      # - name: opa
+      #   config:
+      #     opa_protocol: http
+      #     opa_host: permit-pdp-kong
+      #     opa_port: 7000
+      #     opa_path: /v1/data/kong/authz/allow
+      #     include_consumer_in_opa_input: true
+      #     path_resource_mapping:
+      #       /api/auth/onboarding: workflow_process
 
   # --- Workflow Service (Internal orchestration - Rate Limited) ---
   - name: hms-onboarding-workflow
@@ -67,5 +93,16 @@ services:
           policy: local
           limit_by: ip
           fault_tolerant: true
+      # OPA Plugin for Permit.io PDP integration (requires kong-opa plugin installation)
+      # Uncomment and configure when kong-opa plugin is available
+      # - name: opa
+      #   config:
+      #     opa_protocol: http
+      #     opa_host: permit-pdp-kong
+      #     opa_port: 7000
+      #     opa_path: /v1/data/kong/authz/allow
+      #     include_consumer_in_opa_input: true
+      #     path_resource_mapping:
+      #       /api/v1/onboarding: workflow_process
       # Note: X-Trace-Id is handled by hms-common-lib JwtAuthenticationFilter in downstream services
 
