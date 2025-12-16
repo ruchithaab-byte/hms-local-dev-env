@@ -167,7 +167,7 @@ services:
     image: grafana/grafana:10.2.0
     container_name: grafana
     ports:
-      - "3000:3000"
+      - "3300:3000"
     volumes:
       - ./observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
     environment:
@@ -462,7 +462,65 @@ services:
       - kuma-cp
       - hms-dashboard-projector
 
+  # -----------------------------------------------
+  # Service: hms-test-wiring
+  # -----------------------------------------------
+  hms-test-wiring:
+    build:
+      context: ../hms-test-wiring
+      dockerfile: Dockerfile
+    container_name: hms-test-wiring
+    ports:
+      - "8099:8080"  # Host:Container
+    environment:
+      - SERVER_PORT=8080
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/hms_test_wiring
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SCALEKIT_ENVIRONMENT_URL=${SCALEKIT_ENVIRONMENT_URL}
+      - SCALEKIT_CLIENT_ID=${SCALEKIT_CLIENT_ID}
+      - SCALEKIT_CLIENT_SECRET=${SCALEKIT_CLIENT_SECRET}
+      - SCALEKIT_WEBHOOK_SECRET=${SCALEKIT_WEBHOOK_SECRET}
+      - PERMIT_API_KEY=${PERMIT_API_KEY}
+      - PERMIT_PDP_URL=http://permit-pdp:7000
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPRING_REDIS_HOST=redis
+      - SPRING_REDIS_PORT=6379
+      - OTEL_SERVICE_NAME=hms-test-wiring
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - JAVA_TOOL_OPTIONS=-javaagent:/app/opentelemetry-javaagent.jar
+    networks:
+      - hms-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      kuma-cp:
+        condition: service_started
+
+  hms-test-wiring-sidecar:
+    image: kumahq/kuma-dp:2.8.3
+    container_name: hms-test-wiring-sidecar
+    environment:
+      - KUMA_CONTROL_PLANE_URL=http://kuma-cp:5681
+      - KUMA_DATAPLANE_RUNTIME_TOKEN_PATH=/kuma/token
+      - KUMA_DATAPLANE_NAME=hms-test-wiring
+      - KUMA_DATAPLANE_MESH=default
+      - KUMA_DATAPLANE_ADMIN_PORT=9901
+    volumes:
+      - ./kuma/dataplanes/hms-test-wiring.yaml:/kuma/dataplane.yaml:ro
+      - ./kuma/tokens/hms-test-wiring-token:/kuma/token:ro
+    network_mode: "service:hms-test-wiring"
+    depends_on:
+      - kuma-cp
+      - hms-test-wiring
+
 volumes:
   postgres_data:
-
-

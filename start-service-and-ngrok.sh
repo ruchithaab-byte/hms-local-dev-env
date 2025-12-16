@@ -263,7 +263,7 @@ if [ -n "$NGROK_URL" ]; then
     echo "💡 To view Kong Admin API: http://localhost:8001"
     echo "💡 To view Kuma GUI: http://localhost:5681/gui/"
     echo "💡 To view Kuma API: http://localhost:5681"
-    echo "💡 To view Grafana (Observability): http://localhost:3000"
+    echo "💡 To view Grafana (Observability): http://localhost:3300"
     echo "💡 To stop: pkill -f 'ngrok http' && docker-compose down"
     echo ""
     echo "✅ All services are running through Kong Gateway + Kuma Mesh!"

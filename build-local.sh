@@ -5,9 +5,54 @@
 
 set -e # Stop on error
 
+# Detect and set JAVA_HOME if not set or invalid
+if [ -z "$JAVA_HOME" ] || [ ! -d "$JAVA_HOME" ] || [ ! -f "$JAVA_HOME/bin/java" ]; then
+    # Try to detect Java using macOS java_home utility
+    if command -v /usr/libexec/java_home >/dev/null 2>&1; then
+        # Prefer Java 21, fallback to any available Java
+        DETECTED_JAVA_HOME=$(/usr/libexec/java_home -v 21 2>/dev/null || /usr/libexec/java_home 2>/dev/null || echo "")
+        if [ -n "$DETECTED_JAVA_HOME" ] && [ -d "$DETECTED_JAVA_HOME" ]; then
+            export JAVA_HOME="$DETECTED_JAVA_HOME"
+        fi
+    fi
+    
+    # If still not set, try to find Java from PATH
+    if [ -z "$JAVA_HOME" ]; then
+        JAVA_PATH=$(command -v java 2>/dev/null || echo "")
+        if [ -n "$JAVA_PATH" ]; then
+            # Resolve symlinks and get the real path (macOS compatible)
+            if [ -L "$JAVA_PATH" ]; then
+                JAVA_REAL_PATH=$(readlink "$JAVA_PATH" 2>/dev/null || echo "$JAVA_PATH")
+                # If relative symlink, resolve it
+                if [ "${JAVA_REAL_PATH#/}" = "$JAVA_REAL_PATH" ]; then
+                    JAVA_REAL_PATH="$(dirname "$JAVA_PATH")/$JAVA_REAL_PATH"
+                fi
+            else
+                JAVA_REAL_PATH="$JAVA_PATH"
+            fi
+            # Extract JAVA_HOME (remove /bin/java)
+            JAVA_HOME_CANDIDATE=$(dirname "$(dirname "$JAVA_REAL_PATH")")
+            if [ -d "$JAVA_HOME_CANDIDATE" ] && [ -f "$JAVA_HOME_CANDIDATE/bin/java" ]; then
+                export JAVA_HOME="$JAVA_HOME_CANDIDATE"
+            fi
+        fi
+    fi
+fi
+
+# Verify JAVA_HOME is set and valid
+if [ -z "$JAVA_HOME" ] || [ ! -d "$JAVA_HOME" ] || [ ! -f "$JAVA_HOME/bin/java" ]; then
+    echo "❌ JAVA_HOME is not set correctly"
+    echo "   Current JAVA_HOME: ${JAVA_HOME:-<not set>}"
+    echo "   Please set JAVA_HOME to a valid Java installation directory"
+    echo "   Example: export JAVA_HOME=\$(/usr/libexec/java_home)"
+    exit 1
+fi
+
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║     🏗️  BUILDING PLATFORM LIBRARIES                          ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+echo "☕ Using Java: $JAVA_HOME"
 echo ""
 
 # Step 1: Build Platform Libraries

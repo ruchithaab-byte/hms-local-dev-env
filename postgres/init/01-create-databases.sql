@@ -15,3 +15,7 @@ GRANT ALL PRIVILEGES ON DATABASE bff_db TO postgres;
 GRANT ALL PRIVILEGES ON DATABASE workflow_db TO postgres;
 GRANT ALL PRIVILEGES ON DATABASE projector_db TO postgres;
 
+
+-- Database for hms-test-wiring
+CREATE DATABASE hms_test_wiring;
+GRANT ALL PRIVILEGES ON DATABASE hms_test_wiring TO postgres;

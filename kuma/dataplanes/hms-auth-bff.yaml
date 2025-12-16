@@ -2,7 +2,7 @@ type: Dataplane
 mesh: default
 name: hms-auth-bff
 networking:
-  address: 172.18.0.7
+  address: hms-auth-bff
   inbound:
     - port: 8080
       servicePort: 8080
